@@ -1,8 +1,9 @@
-huggingface-hub
-numpy
-pipreqs
 streamlit
+torch
+transformers>=4.21.0
+pandas
+numpy
+tokenizers
+huggingface-hub
 tensorflow
-
-
-
+torch
