@@ -1,217 +1,144 @@
 import streamlit as st
-import re
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
+import torch
+import torch.nn.functional as F
 import numpy as np
-import tensorflow as tf
-from tensorflow.keras.models import load_model
-from tensorflow.keras.preprocessing.sequence import pad_sequences
-from tensorflow.keras.preprocessing.text import Tokenizer
-import pickle
-import os
-from huggingface_hub import hf_hub_download
-from tensorflow.keras.utils import get_custom_objects
-from transformers import TFAutoModelForSequenceClassification, BertConfig
 
-# Konfigurasi halaman
-st.set_page_config(
-    page_title="Sentiment Analysis App",
-    page_icon="🔍",
-    layout="wide"
-)
-
-# Mapping sentimen
-SENTIMENT_MAPPING = {
-    0: "SADNESS", 
-    1: "ANGER", 
-    2: "SUPPORT", 
-    3: "HOPE", 
-    4: "DISAPPOINTMENT"
-}
-
-# Konstanta
-SEQ_LEN = 96
-
-# Fungsi preprocessing
-URL_RE = re.compile(r'https?://\S+|www\.\S+', flags=re.IGNORECASE)
-MENTION_RE = re.compile(r'@\w+')
-REPEAT_PAT = re.compile(r'(.)\1{2,}')
-
-def preprocess(text: str) -> str:
-    if not isinstance(text, str):
-        return ""
-    text = text.lower()
-    text = URL_RE.sub(' ', text)
-    text = MENTION_RE.sub(' ', text)
-    text = re.sub(r'[^0-9a-zA-Z_\s]', ' ', text)
-    text = re.sub(r'\s+', ' ', text).strip()
-    return text
-
-def normalize_repeated_chars(text: str) -> str:
-    return REPEAT_PAT.sub(r'\1\1', str(text))
-
-def normalize_slang(text, slang_map):
-    if not isinstance(text, str):
-        return ""
-    for slang, norm in slang_map.items():
-        text = re.sub(re.escape(slang), f" {norm} ", text, flags=re.IGNORECASE)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
-
-# Slang mapping
-slang_map = {
-    '❤️': 'cinta', '😍': 'gembira', '😭': 'sedih', '😢': 'sedih', 
-    '😡': 'marah', '😠': 'marah', '😂': 'tertawa', '🤣': 'tertawa', 
-    '😅': 'gembira', '😊': 'gembira', '👍': 'bagus', '👎': 'buruk', 
-    '🤔': 'berpikir', '😱': 'kaget', '😤': 'kesal', '😞': 'sedih', 
-    '🤯': 'kaget', '🥰': 'gembira'
-}
-
-def full_preprocess(text):
-    """Fungsi preprocessing lengkap"""
-    text = preprocess(text)
-    text = normalize_repeated_chars(text)
-    text = normalize_slang(text, slang_map)
-    return text
-
+# Cache model loading untuk performa yang lebih baik
 @st.cache_resource
 def load_model_and_tokenizer():
-    """Load model dan tokenizer dari Hugging Face"""
+    """Load model dan tokenizer dengan caching"""
     try:
-        # Download model dari Hugging Face
-        model_path = hf_hub_download(
-            repo_id="MonyetttRindam/tomlembong",
-            filename="sentimentanalyisisl.h5"
+        # Load model dari TensorFlow weights ke PyTorch
+        model = AutoModelForSequenceClassification.from_pretrained(
+            "MonyetttRindam/emotion_classification_model", 
+            from_tf=True
         )
-        
-        # Gunakan TFAutoModelForSequenceClassification untuk klasifikasi
-        with tf.keras.utils.custom_object_scope({'TFBertModel': TFAutoModelForSequenceClassification}):
-            model = load_model(model_path)
-        
-        # Untuk tokenizer, Anda perlu mengupload file tokenizer juga ke HF
-        # Atau buat tokenizer baru (tidak ideal untuk produksi)
-        try:
-            tokenizer_path = hf_hub_download(
-                repo_id="MonyetttRindam/tomlembong",
-                filename="tokenizer.pickle"
-            )
-            with open(tokenizer_path, 'rb') as f:
-                tokenizer = pickle.load(f)
-        except:
-            # Fallback: buat tokenizer baru (tidak ideal)
-            st.warning("Tokenizer tidak ditemukan. Menggunakan tokenizer default.")
-            tokenizer = Tokenizer(num_words=10000, oov_token="<OOV>")
-            
+        tokenizer = AutoTokenizer.from_pretrained("MonyetttRindam/emotion_classification_model")
         return model, tokenizer
-        
     except Exception as e:
         st.error(f"Error loading model: {str(e)}")
         return None, None
 
-def predict_sentiment(text, model, tokenizer):
-    """Prediksi sentimen dari teks"""
+# Fungsi untuk memprediksi emosi
+def predict_emotion(text, model, tokenizer):
+    """Prediksi emosi dari teks input"""
     try:
-        # Preprocess text
-        processed_text = full_preprocess(text)
+        # Validasi input
+        if not text or len(text.strip()) == 0:
+            return None, None
         
-        # Tokenisasi
-        sequences = tokenizer.texts_to_sequences([processed_text])
+        # Tokenisasi input teks
+        inputs = tokenizer(text, return_tensors='pt', truncation=True, padding=True, max_length=96)
         
-        # Padding
-        padded_sequences = pad_sequences(sequences, maxlen=SEQ_LEN, padding='post')
+        # Set model ke evaluation mode
+        model.eval()
         
-        # Prediksi
-        prediction = model.predict(padded_sequences)
-        predicted_class = np.argmax(prediction[0])
-        confidence = np.max(prediction[0])
+        # Prediksi emosi dengan model (no gradient computation)
+        with torch.no_grad():
+            outputs = model(**inputs)
+            predictions = outputs.logits
+            
+        # Hitung probabilitas menggunakan softmax
+        probabilities = F.softmax(predictions, dim=-1)
+        predicted_class = torch.argmax(predictions, dim=-1).item()
         
-        return SENTIMENT_MAPPING[predicted_class], confidence, prediction[0]
+        # Label emosi (sesuai dengan training data)
+        emotions = ["SADNESS", "ANGER", "SUPPORT", "HOPE", "DISAPPOINTMENT"]
+        
+        return emotions[predicted_class], probabilities[0].numpy()
         
     except Exception as e:
-        st.error(f"Error dalam prediksi: {str(e)}")
-        return None, None, None
+        st.error(f"Error during prediction: {str(e)}")
+        return None, None
 
-def main():
-    st.title("🔍 Sentiment Analysis App")
-    st.markdown("---")
-    
-    # Load model
-    with st.spinner("Loading model..."):
-        model, tokenizer = load_model_and_tokenizer()
-    
-    if model is None or tokenizer is None:
-        st.error("Gagal memuat model. Silakan periksa konfigurasi Hugging Face.")
-        st.stop()
-    
-    st.success("Model berhasil dimuat!")
-    
-    # Input text
-    st.subheader("📝 Input Teks")
-    user_input = st.text_area(
-        "Masukkan teks yang ingin dianalisis:",
-        placeholder="Contoh: Saya sangat senang dengan hasil ini!",
-        height=100
-    )
-    
-    # Tombol prediksi
-    if st.button("🔮 Analisis Sentimen", type="primary"):
-        if user_input.strip():
-            with st.spinner("Menganalisis sentimen..."):
-                sentiment, confidence, all_predictions = predict_sentiment(
-                    user_input, model, tokenizer
-                )
+# Streamlit UI
+st.title("🎭 Emotion Classification with Fine-Tuned BERT")
+st.write("This app uses a fine-tuned BERT model to classify the emotion of a given text.")
+st.write("**Supported emotions:** SADNESS, ANGER, SUPPORT, HOPE, DISAPPOINTMENT")
+
+# Load model dan tokenizer
+with st.spinner("Loading model..."):
+    model, tokenizer = load_model_and_tokenizer()
+
+if model is None or tokenizer is None:
+    st.error("Failed to load model. Please check your internet connection and try again.")
+    st.stop()
+
+st.success("Model loaded successfully!")
+
+# Input box untuk pengguna memasukkan teks
+st.subheader("Enter Text for Emotion Classification")
+user_input = st.text_area(
+    "Enter Text:", 
+    placeholder="Type your text here...",
+    height=100
+)
+
+# Button untuk prediksi
+if st.button("Classify Emotion", type="primary"):
+    if user_input and user_input.strip():
+        with st.spinner("Analyzing emotion..."):
+            prediction, probabilities = predict_emotion(user_input, model, tokenizer)
             
-            if sentiment:
-                # Hasil prediksi
-                st.subheader("📊 Hasil Analisis")
+            if prediction is not None:
+                st.subheader("Results:")
                 
-                col1, col2 = st.columns(2)
+                # Tampilkan prediksi utama
+                st.success(f"**Predicted Emotion: {prediction}**")
                 
-                with col1:
-                    st.metric("Sentimen Terdeteksi", sentiment)
-                    st.metric("Confidence Score", f"{confidence:.2%}")
+                # Tampilkan confidence scores
+                st.subheader("Confidence Scores:")
+                emotions = ["SADNESS", "ANGER", "SUPPORT", "HOPE", "DISAPPOINTMENT"]
                 
-                with col2:
-                    # Progress bar untuk confidence
-                    st.write("**Tingkat Kepercayaan:**")
-                    st.progress(confidence)
+                # Buat dataframe untuk visualisasi
+                import pandas as pd
+                scores_df = pd.DataFrame({
+                    'Emotion': emotions,
+                    'Confidence': probabilities
+                })
+                scores_df = scores_df.sort_values('Confidence', ascending=False)
                 
-                # Detail semua prediksi
-                with st.expander("📈 Detail Semua Prediksi"):
-                    for i, (label, score) in enumerate(zip(SENTIMENT_MAPPING.values(), all_predictions)):
-                        st.write(f"**{label}**: {score:.4f} ({score:.2%})")
-                        st.progress(score)
+                # Bar chart
+                st.bar_chart(data=scores_df.set_index('Emotion')['Confidence'])
                 
-                # Teks yang diproses
-                with st.expander("🔧 Teks Setelah Preprocessing"):
-                    processed = full_preprocess(user_input)
-                    st.write(f"Original: `{user_input}`")
-                    st.write(f"Processed: `{processed}`")
-        else:
-            st.warning("Silakan masukkan teks terlebih dahulu!")
-    
-    # Informasi aplikasi
-    st.markdown("---")
-    with st.expander("ℹ️ Informasi Aplikasi"):
-        st.write("""
-        **Model Information:**
-        - Model: sentimentanalyisisfinal.h5
-        - Repository: MonyetttRindam/tomlembong
-        - Tokenizer: IndoBERT (indobenchmark/indobert-base-p2)
-        - Architecture: BERT + Dense layers
-        - Inputs: input_ids + attention_mask
-        - Sequence Length: 96
-        
-        **Sentiment Categories:**
-        - SADNESS (Kesedihan)
-        - ANGER (Kemarahan) 
-        - SUPPORT (Dukungan)
-        - HOPE (Harapan)
-        - DISAPPOINTMENT (Kekecewaan)
-        
-        **Preprocessing Steps:**
-        1. Text cleaning (URL, mentions, special chars removal)
-        2. Normalisasi karakter berulang
-        3. Konversi emoji dan slang ke teks
-        """)
+                # Tabel scores
+                for emotion, score in zip(emotions, probabilities):
+                    st.write(f"**{emotion}**: {score:.4f} ({score*100:.2f}%)")
+                    
+            else:
+                st.error("Failed to predict emotion. Please try again.")
+    else:
+        st.warning("Please enter some text to classify.")
 
-if __name__ == "__main__":
-    main()
+# Tambahkan informasi tambahan
+with st.expander("ℹ️ About this model"):
+    st.write("""
+    This emotion classification model is based on BERT and fine-tuned to classify text into 5 emotional categories:
+    - **SADNESS**: Expressions of sorrow, grief, or melancholy
+    - **ANGER**: Expressions of rage, frustration, or irritation  
+    - **SUPPORT**: Expressions of encouragement, help, or solidarity
+    - **HOPE**: Expressions of optimism, expectation, or aspiration
+    - **DISAPPOINTMENT**: Expressions of dissatisfaction or unmet expectations
+    
+    The model uses a maximum sequence length of 96 tokens.
+    """)
+
+# Contoh teks untuk testing
+with st.expander("📝 Try these examples"):
+    example_texts = [
+        "I'm feeling so down today, everything seems to go wrong.",
+        "This is absolutely frustrating! I can't stand this anymore!",
+        "You can do it! I believe in you and I'm here to help.",
+        "I'm excited about tomorrow, things will get better for sure!",
+        "I expected so much more from this, what a letdown."
+    ]
+    
+    for i, example in enumerate(example_texts, 1):
+        if st.button(f"Example {i}", key=f"example_{i}"):
+            # Set example text ke text area
+            st.session_state.example_text = example
+
+    # Display selected example
+    if 'example_text' in st.session_state:
+        st.text_area("Selected example:", st.session_state.example_text, key="example_display")
