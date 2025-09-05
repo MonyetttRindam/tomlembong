@@ -7,3 +7,4 @@ tokenizers
 huggingface-hub
 tensorflow
 torch
+tf-keras
