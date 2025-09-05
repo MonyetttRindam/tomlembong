@@ -1,7 +1,6 @@
 import streamlit as st
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
-import torch
-import torch.nn.functional as F
+from transformers import AutoModelForSequenceClassification, AutoTokenizer, TFAutoModelForSequenceClassification
+import tensorflow as tf
 import numpy as np
 
 # Cache model loading untuk performa yang lebih baik
@@ -9,11 +8,9 @@ import numpy as np
 def load_model_and_tokenizer():
     """Load model dan tokenizer dengan caching"""
     try:
-        # Load model dari TensorFlow weights ke PyTorch
-        model = AutoModelForSequenceClassification.from_pretrained(
-            "MonyetttRindam/emotion_classification_model", 
-            from_tf=True
-        )
+        # Memuat model dari TensorFlow ke PyTorch
+        model = TFAutoModelForSequenceClassification.from_pretrained(
+            "MonyetttRindam/emotion_classification_model")
         tokenizer = AutoTokenizer.from_pretrained("MonyetttRindam/emotion_classification_model")
         return model, tokenizer
     except Exception as e:
@@ -24,26 +21,23 @@ def load_model_and_tokenizer():
 def predict_emotion(text, model, tokenizer):
     """Prediksi emosi dari teks input"""
     try:
-        # Validasi input
         if not text or len(text.strip()) == 0:
             return None, None
         
-        # Tokenisasi input teks
-        inputs = tokenizer(text, return_tensors='pt', truncation=True, padding=True, max_length=96)
+        # Tokenisasi
+        inputs = tokenizer(text, return_tensors='tf', truncation=True, padding=True, max_length=96)
         
-        # Set model ke evaluation mode
-        model.eval()
+        # Prediksi dengan TensorFlow
+        outputs = model(**inputs)
+        predictions = outputs.logits
         
-        # Prediksi emosi dengan model (no gradient computation)
-        with torch.no_grad():
-            outputs = model(**inputs)
-            predictions = outputs.logits
-            
-        # Hitung probabilitas menggunakan softmax
-        probabilities = F.softmax(predictions, dim=-1)
-        predicted_class = torch.argmax(predictions, dim=-1).item()
+        # Softmax untuk probabilitas
+        probabilities = tf.nn.softmax(predictions, axis=-1)
         
-        # Label emosi (sesuai dengan training data)
+        # Ambil predicted class
+        predicted_class = tf.argmax(predictions, axis=-1).numpy()[0]
+        
+        # Label emosi
         emotions = ["SADNESS", "ANGER", "SUPPORT", "HOPE", "DISAPPOINTMENT"]
         
         return emotions[predicted_class], probabilities[0].numpy()
@@ -113,7 +107,7 @@ if st.button("Classify Emotion", type="primary"):
 
 # Tambahkan informasi tambahan
 with st.expander("ℹ️ About this model"):
-    st.write("""
+    st.write("""    
     This emotion classification model is based on BERT and fine-tuned to classify text into 5 emotional categories:
     - **SADNESS**: Expressions of sorrow, grief, or melancholy
     - **ANGER**: Expressions of rage, frustration, or irritation  
@@ -142,3 +136,5 @@ with st.expander("📝 Try these examples"):
     # Display selected example
     if 'example_text' in st.session_state:
         st.text_area("Selected example:", st.session_state.example_text, key="example_display")
+
+        link = 'https://tomlembong-ekl9h5mxnpfbkal8dq4p3e.streamlit.app/'
