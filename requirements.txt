@@ -1,7 +1,8 @@
-huggingface-hub==0.34.4
-numpy==1.24.3
-pipreqs==0.4.13
-streamlit==1.49.1
-tensorflow==2.20.0
+huggingface-hub
+numpy
+pipreqs
+streamlit
+tensorflow
+
 
 
