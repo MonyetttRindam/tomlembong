@@ -461,6 +461,7 @@ st.markdown("---")
 st.markdown("""
 <div class="footer">
     <p>Dibangun menggunakan <strong>Streamlit</strong> dan <strong>Transformers</strong></p>
-    <p>Model oleh <strong>MonyetttRindam</strong> • UI/UX disempurnakan</p>
+    <p>Model dibuat oleh <strong>MonyetttRindam</strong></p>
 </div>
 """, unsafe_allow_html=True)
+
