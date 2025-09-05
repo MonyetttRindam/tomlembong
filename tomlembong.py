@@ -3,6 +3,7 @@ from transformers import TFAutoModelForSequenceClassification, AutoTokenizer
 import tensorflow as tf
 import numpy as np
 import pandas as pd
+import re
 
 # Custom CSS untuk tema sederhana dan elegan dengan nuansa sedih
 st.markdown("""
@@ -107,6 +108,15 @@ st.markdown("""
         border-left: 3px solid #3498db;
     }
     
+    /* Preprocessing section */
+    .preprocessing-box {
+        background: rgba(255, 255, 255, 0.8);
+        border-radius: 8px;
+        padding: 1rem;
+        margin: 1rem 0;
+        border: 1px solid #e2e8f0;
+    }
+    
     /* Example buttons */
     .example-btn .stButton > button {
         background-color: #a0aec0;
@@ -156,6 +166,57 @@ def load_model_and_tokenizer():
         st.error(f"Error loading model: {str(e)}")
         return None, None
 
+# Fungsi preprocessing
+URL_RE = re.compile(r'https?://\S+|www\.\S+', flags=re.IGNORECASE)
+MENTION_RE = re.compile(r'@\w+')
+REPEAT_PAT = re.compile(r'(.)\1{2,}')
+
+slang_map = {
+    '❤️': 'cinta',
+    '😍': 'gembira',
+    '😭': 'sedih',
+    '😢': 'sedih',
+    '😡': 'marah',
+    '😠': 'marah',
+    '😂': 'tertawa',
+    '🤣': 'tertawa',
+    '😅': 'gembira',
+    '😊': 'gembira',
+    '👍': 'bagus',
+    '👎': 'buruk',
+    '🤔': 'berpikir',
+    '😱': 'kaget',
+    '😤': 'kesal',
+    '😞': 'sedih',
+    '🤯': 'kaget',
+    '🥰': 'gembira',
+}
+
+def preprocess(text: str) -> str:
+    """Preprocess teks dengan normalisasi dan pembersihan"""
+    if not isinstance(text, str):
+        return ""
+    
+    # Normalisasi karakter berulang
+    text = REPEAT_PAT.sub(r'\1\1', text)
+    
+    # Normalisasi emoji dan slang
+    for slang, norm in slang_map.items():
+        text = re.sub(re.escape(slang), f" {norm} ", text, flags=re.IGNORECASE)
+    
+    # Hapus URL dan mention
+    text = URL_RE.sub(' ', text)
+    text = MENTION_RE.sub(' ', text)
+    
+    # Konversi ke lowercase
+    text = text.lower()
+    
+    # Hapus karakter khusus dan normalisasi spasi
+    text = re.sub(r'[^0-9a-zA-Z_\s]', ' ', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    
+    return text
+
 # Fungsi prediksi emosi
 def predict_emotion(text, model, tokenizer):
     """Prediksi emosi dari teks input"""
@@ -163,7 +224,10 @@ def predict_emotion(text, model, tokenizer):
         if not text or len(text.strip()) == 0:
             return None, None
         
-        inputs = tokenizer(text, return_tensors='tf', truncation=True, padding=True, max_length=96)
+        # Preprocess teks sebelum prediksi
+        processed_text = preprocess(text)
+        
+        inputs = tokenizer(processed_text, return_tensors='tf', truncation=True, padding=True, max_length=96)
         outputs = model(**inputs)
         predictions = outputs.logits
         probabilities = tf.nn.softmax(predictions, axis=-1)
@@ -172,11 +236,11 @@ def predict_emotion(text, model, tokenizer):
         emotions = ["SADNESS", "ANGER", "SUPPORT", "HOPE", "DISAPPOINTMENT"]
         probabilities_np = probabilities[0].numpy()
         
-        return emotions[predicted_class], probabilities_np
+        return emotions[predicted_class], probabilities_np, processed_text
         
     except Exception as e:
         st.error(f"Error during prediction: {str(e)}")
-        return None, None
+        return None, None, None
 
 # Header
 st.markdown('<h1 class="main-header">🎭 Analisis Emosi Teks</h1>', unsafe_allow_html=True)
@@ -188,6 +252,7 @@ st.markdown("""
     <span class="tech-badge">Transformers</span>
     <span class="tech-badge">Deep Learning</span>
     <span class="tech-badge">IndoBERT</span>
+    <span class="tech-badge">Text Preprocessing</span>
 </div>
 """, unsafe_allow_html=True)
 
@@ -219,13 +284,32 @@ user_input = st.text_area(
     height=100
 )
 
+# Toggle untuk menampilkan preprocessing
+show_preprocessing = st.checkbox("Tampilkan proses preprocessing")
+
 # Predict button
 if st.button("🔍 Analisis Emosi", type="primary"):
     if user_input and user_input.strip():
         with st.spinner("Menganalisis..."):
-            prediction, probabilities = predict_emotion(user_input, model, tokenizer)
+            prediction, probabilities, processed_text = predict_emotion(user_input, model, tokenizer)
             
             if prediction is not None:
+                # Tampilkan preprocessing jika diminta
+                if show_preprocessing:
+                    st.markdown("### 🔧 Hasil Preprocessing")
+                    st.markdown('<div class="preprocessing-box">', unsafe_allow_html=True)
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown("**Teks Asli:**")
+                        st.info(user_input)
+                    
+                    with col2:
+                        st.markdown("**Teks Setelah Preprocessing:**")
+                        st.success(processed_text)
+                    
+                    st.markdown('</div>', unsafe_allow_html=True)
+                
                 # Results section
                 st.markdown('<div class="emotion-result">', unsafe_allow_html=True)
                 
@@ -296,6 +380,14 @@ with st.expander("ℹ️ Tentang Model dan Teknologi"):
     Sistem ini menggunakan arsitektur **IndoBERT** (Indonesian Bidirectional Encoder Representations from Transformers) 
     yang telah di-fine-tune khusus untuk tugas klasifikasi emosi dalam teks bahasa Indonesia.
     
+    ### Preprocessing Teks:
+    - Normalisasi karakter berulang (contoh: "sooo" → "soo")
+    - Konversi emoji ke kata (contoh: "😢" → "sedih")
+    - Penghapusan URL dan mention (@user)
+    - Konversi ke huruf kecil
+    - Penghapusan karakter khusus
+    - Normalisasi spasi berlebih
+    
     ### Emosi yang Dikenali:
     - 😢 **SADNESS (Kesedihan)**: Perasaan sedih, duka, atau kepiluan
     - 😠 **ANGER (Kemarahan)**: Emosi kuat berupa kemarahan, frustrasi, atau amarah  
@@ -340,11 +432,11 @@ with st.expander("📊 Informasi Dataset"):
 # Examples
 with st.expander("📝 Contoh Teks untuk Dicoba"):
     example_texts = [
-        "Hari ini rasanya berat, semua tidak berjalan sesuai harapan. Ada perasaan hampa yang sulit dijelaskan.",
-        "Sangat kesal dengan situasi yang tidak adil ini! Sudah seharusnya ada perubahan sistem yang lebih baik.",
-        "Saya yakin kebenaran akan terbukti, mari kita dukung proses yang adil untuk semua pihak yang terlibat.",
-        "Meski sulit sekarang, saya optimis masa depan akan lebih baik. Kita harus tetap semangat dan berusaha.",
-        "Mengecewakan melihat bagaimana sistem memperlakukan orang baik. Seharusnya ada reward untuk kejujuran."
+        "Hari ini rasanya berat, semua tidak berjalan sesuai harapan. Ada perasaan hampa yang sulit dijelaskan 😢",
+        "Sangat kesal dengan situasi yang tidak adil ini! 😠 Sudah seharusnya ada perubahan sistem yang lebih baik.",
+        "Saya yakin kebenaran akan terbukti ❤️, mari kita dukung proses yang adil untuk semua pihak yang terlibat 🤝",
+        "Meski sulit sekarang, saya optimis masa depan akan lebih baik 🌟. Kita harus tetap semangat dan berusaha.",
+        "Mengecewakan melihat bagaimana sistem memperlakukan orang baik 😔. Seharusnya ada reward untuk kejujuran."
     ]
     
     example_labels = [
@@ -369,8 +461,6 @@ st.markdown("---")
 st.markdown("""
 <div class="footer">
     <p>Dibangun menggunakan <strong>Streamlit</strong> dan <strong>Transformers</strong></p>
-    <p>Model dibuat oleh <strong>MonyetttRindam</strong></p>
+    <p>Model oleh <strong>MonyetttRindam</strong> • UI/UX disempurnakan</p>
 </div>
 """, unsafe_allow_html=True)
-
-
