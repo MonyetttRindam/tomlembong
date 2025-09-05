@@ -5,4 +5,5 @@ tensorflow
 torch
 numpy
 pandas
+tf-keras
 
