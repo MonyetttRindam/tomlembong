@@ -35,8 +35,3 @@ The goal is to classify public sentiment based on real-world social media data u
 - TensorFlow / PyTorch
 - Scikit-learn
 - Pandas, NumPy
-
-## 🧪 How to Run (Local)
-1. Clone the repository  
-   ```bash
-   git clone https://github.com/MonyetttRindam/tomlembong.git
