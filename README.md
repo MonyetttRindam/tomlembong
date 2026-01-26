@@ -24,10 +24,18 @@ The goal is to classify public sentiment based on real-world social media data u
 - Tokenization with BERT tokenizer
 - Padding & truncation to fixed length
 
-## 📊 Sentiment Classes
-- 😃 **Positive**
-- 😐 **Neutral**
-- 😞 **Negative**
+## 🏷 Sentiment Labels
+
+The sentiment classification task uses **5 sentiment classes** with the following label encoding:
+
+- **0** → Sadness  
+- **1** → Anger  
+- **2** → Support  
+- **3** → Hope  
+- **4** → Disappointment  
+
+These labels are used consistently during training, evaluation, and deployment of the BERT-based model.
+
 
 ## ⚙️ Tech Stack
 - Python
